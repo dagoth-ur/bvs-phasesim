@@ -1,23 +1,24 @@
 <!doctype html>
 <html>
   <head>
-    <title>BvS Phase Fight Simulator (for now)</title>
+    <meta charset="utf-8" />
+    <title>BvS Phase Fight Simulator</title>
     <!-- <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js"></script> -->
     <script src="jquery-3.4.0.slim.js"></script>
-    <script src="bvs_calcs.js"></script>
+    <script src="bvs_phasesim.js"></script>
 <style>
 body {
   font-family : "Sans Serif";
 }
-#statsform {
+form {
   display : flex;
+  justify-content : space-around;
+  margin : 0 10px;
 }
 .formcol {
-  padding-left : 45px;
-  min-width : 30%;
-}
-.formcol:first-child {
-  padding-left : 15px;
+  flex-grow : 1;
+  margin : 0 15px;
+  /* flex-basis : 30%; */
 }
 .formrow {
   display : flex;
@@ -26,14 +27,61 @@ body {
   justify-content : space-between;
   align-items : center;
 }
-.formrow:nth-of-type(odd) {
+formrow:nth-of-type(odd) {
   background : #cfcfcf;
 }
 .formrow:nth-of-type(even) {
   background : #efefef;
 }
-#statsform input {
+input {
   text-align : right;
+}
+#phaseform .formcol {
+  flex-basis : 45%;
+}
+select {
+  width : 100%;
+}
+#helpcontainer {
+  box-sizing : border-box;
+  width : 95%;
+  margin : 0 25px;
+}
+#helphead {
+  border : dotted black 1px;
+  padding : 5px 5px;
+  display : flex;
+  justify-content : space-between;
+}
+#helphead span.foldheading::after {
+  content : "Click to show help";
+}
+#helphead span.foldarrow::after {
+  content : "\25b6";
+}
+#helphead.active span.foldheading::after {
+  content : "Click to hide help";
+}
+#helphead.active span.foldarrow::after {
+  content : "\25bc";
+}
+#helpbox {
+  width : 100%;
+  box-sizing : border-box;
+  padding : 5px 5px;
+  border : dotted black 1px;
+  border-top : none;
+}
+.hidable {
+  display : none;
+}
+.hidable.active {
+  /* Sadly, not yet supported very well 
+  display : revert; */
+  display : block;
+}
+.pushradios label {
+  white-space : nowrap;
 }
 </style>
   </head>
@@ -43,7 +91,7 @@ body {
         <h4>Drain strength:</h4>
         <div class="formrow">
           <label for="hacks">Active hacks</label>
-          <input id="hacks" type="text" maxlengt=2 size=3 inputmode="decimal">
+          <input id="hacks" type="text" maxlength=2 size=3 inputmode="decimal">
         </div>
         <div class="formrow">
           <label for="r00t">R00t rank (+2)</label>
@@ -64,7 +112,7 @@ body {
         </div>
         <div class="formrow">
           <label for="tonicbonus">Drain Tonic bonus</label>
-          <input id="tonicbouns" type="text" maxlength=2 size=3 inputmode="decimal">
+          <input id="tonicbonus" type="text" maxlength=2 size=3 inputmode="decimal">
         </div>
         <div class="formrow">
           <label for="lycoris">Lycoris (+5)</label>
@@ -79,8 +127,8 @@ body {
           <input id="flaskmist" type="checkbox" checked>
         </div>
         <div class="formrow">
-          <label for="555phone">555 Phone (+1)</label>
-          <input id="555phone" type="checkbox" checked>
+          <label for="_555phone">555 Phone (+1)</label>
+          <input id="_555phone" type="checkbox" checked>
         </div>
         <div class="formrow">
           <label for="r00t-drain">R00t power (+5)</label>
@@ -166,6 +214,77 @@ body {
         <div class="formrow">
           <label for="pinkskull">Pink Skull (-20 focus cost)</label>
           <input id="pinkskull" type="checkbox" checked>
+        </div>
+        <div class="formrow">
+          <label for="magnifier">Duality Magnifier (upgrade) (13% not to use attack)</label>
+          <input id="magnifier" type="checkbox" checked>
+        </div>
+      </div>
+      <div class="formcol">
+        <h4>Stats:</h4>
+        <div class="formrow"><span>Drain level:</span><span id="dlvl">1</span></div>
+        <div class="formrow"><span>Drain strength:</span><span id="dstr">1</span></div>
+        <div class="formrow"><span>Drain range:</span><span id="drng">11</span></div>
+        <div class="formrow"><span>Drain edge:</span><span id="dedg">0</span></div>
+        <div class="formrow"><span>Dmg bonus:</span><span id="dmgplus">0</span></div>
+        <hr>
+        <div class="formrow"><span>Base lives:</span><span id="lives">1</span></div>
+        <div class="formrow"><span>Buyable lives:</span><span id="buylives">0</span></div>
+        <div class="formrow"><span>Graze:</span><span id="graze">None</span></div>
+        <div class="formrow"><span>Extra DC% at max push:</span><span id="dcplus">0</span></div>
+        <hr>
+        <h5>Detective Duo team:</h5>
+        <div class="formrow"><span>Avg. dmg at min push:</span><span id="mindmg-dd">0</span></div>
+        <div class="formrow"><span>Avg. dmg at max push:</span><span id="maxdmg-dd">0</span></div>
+        <h5>Offline Romance team:</h5>
+        <div class="formrow"><span>Avg. dmg at min push:</span><span id="mindmg-or">0</span></div>
+        <div class="formrow"><span>Avg. dmg at max push:</span><span id="maxdmg-or">0</span></div>
+      </div>
+    </form>
+    <div id="helpcontainer">
+      <div id="helphead"><span class='foldheading'></span><span class='foldarrow'></span></div>
+      <div id="helpbox" class="hidable">Insert explanatory text here</div>
+    </div>
+    <form id="phaseform">
+      <div class="formcol">
+        <h4>Phase:</h4>
+        <select id="phase-select">
+          <option value="">--- Select Phase ---</option>
+          <!-- Filled from JavaScript -->
+        </select>
+        <div class="formrow"><span>Phase HP:</span><span id="ph-hp">0</span></div>
+        <div class="formrow"><span>Phase difficulty:</span><span id="ph-diff">0</span></div>
+        <div id="eleven-note" class="formrow hidable">(2 lives lost when killed)</div>
+      </div>
+      <div class="formcol">
+        <h4>Strategy</h4>
+        <div class="formrow">
+          <span>Detective Duo:</span>
+          <span class="pushradios">
+            <label for="dd-strat-max">
+              <input id="dd-strat-max" type="radio" name="dd-strat" checked> Max push
+            </label>
+            <span style="padding-left: 1.5em"></span>
+            <label for="dd-strat-min">
+              <input id="dd-strat-min" type="radio" name="dd-strat"> Min push
+            </label>
+          </span>
+        </div>
+        <div class="formrow">
+          <span>Offline Romance:</span>
+          <span class="pushradios">
+            <label for="or-strat-max">
+              <input id="or-strat-max" type="radio" name="or-strat" checked> Max push
+            </label>
+            <span style="padding-left: 1.5em"></span>
+            <label for="or-strat-min">
+              <input id="or-strat-min" type="radio" name="or-strat"> Min push
+            </label>
+          </span>
+        </div>
+        <div class="formrow">
+          <label for="or-switch">Use Offline Romance team</label>
+          <input type="checkbox" id="or-switch" checked>
         </div>
       </div>
     </form>
