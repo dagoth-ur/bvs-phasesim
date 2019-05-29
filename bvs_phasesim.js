@@ -1,6 +1,44 @@
 (function () { "use strict";
     //
-    // Dealing with the stats input form
+    // Helpful things
+    //
+    function $(selector, context=document) {
+        return context.querySelector(selector);
+    }
+
+    function hasClass(elem, cls) {
+        var classes = elem.className.split(' ');
+        return (classes.indexOf(cls) !== -1);
+    }
+
+    function addClass(elem, cls) {
+        var classes = elem.className.split(' ');
+        var idx = classes.indexOf(cls);
+        if (idx !== -1)
+            return;
+        classes.push(cls);
+        elem.className = classes.join(' ');
+    }
+
+    function removeClass(elem, cls) {
+        var classes = elem.className.split(' ');
+        var idx = classes.indexOf(cls);
+        if (idx === -1)
+            return;
+        classes.splice(idx, 1);
+        elem.className = classes.join(' ');
+    }
+
+    function toggleClass(elem, cls) {
+        if (hasClass(elem, cls)) {
+            removeClass(elem, cls);
+        } else {
+            addClass(elem, cls);
+        }
+    }
+
+    //
+    // Player stats
     //
     const bonuses = {'r00t'        : {drainStr : 2}
                     ,'epitaph'     : {drainStr : 2}
@@ -10,6 +48,7 @@
                     ,'flaskmist'   : {drain : 1}
                     ,'_555phone'   : {drain : 1}
                     ,'r00t-drain'  : {drain : 5}
+                    ,'r00t-fu'     : {drain : 2} 
                     ,'amplifier'   : {drain : 2}
                     ,'overclock'   : {drain : 5}
                     ,'aromagrass'  : {edge : 5}
@@ -34,37 +73,30 @@
                       ,'season'     : 'drain, drainRng, season'
                       ,'tonicbonus' : 'drain'};
 
-    function $(selector, context=document) {
-        return context.querySelector(selector);
-    }
-
     function readStatsInput() {
         var base = { drain : 0, drainStr : 0, drainRng : 10, edge : 0
                    , lives : 1, buyableLives : 0, maxpushDCReduce : 0
                    , graze : [], dmg : 0, season : 0};
         for (let bonus of Object.keys(bonuses)) {
-            //console.log('Bonus: ' + bonus);
             if (!$(`#${bonus}`).checked)
                 continue;
             if (typeof bonuses[bonus] == 'boolean') {
-                //console.log('Setting flag ' + bonus);
-                base.bonus = true;
+                base[bonus] = true;
                 continue;
             }
             for (let stat of Object.keys(bonuses[bonus])) {
                 if (typeof bonuses[bonus][stat] == 'number') {
-                    //console.log('Numerical bonus to ' + stat);
                     base[stat] += bonuses[bonus][stat];
                 } else if (bonuses[bonus][stat] instanceof Array) {
-                    //console.log('Arrayical (?) bonus to ' + stat);
                     base[stat].push(...bonuses[bonus][stat]);
                 }
             }
         }
         for (let field of Object.keys(numFields)) {
-            //console.log('Num field: ' + field);
             let val = parseInt(
                 $(`#${field}`).value || "0");
+            if (field === 'season')
+                val = Math.min(50, val);
             for (let stat of numFields[field].split(','))
                 base[stat.trim()] += val;
         }
@@ -73,6 +105,10 @@
 
     function maxPush(season) {
         return Math.min(Math.max(0, season-1) * 0.5, 4);
+    }
+
+    function toHit(str, rng, diff) {
+        return 1 - (Math.max(0, diff - 1 - str) / rng);
     }
 
     // Before dmg% bonus
@@ -90,51 +126,16 @@
     const teams = {'detective duo' : { edge : 5, dmg : 250 }
                   ,'offline romance' : { drain : 4, lives : 1 }};
 
-    function updateStatsDisplay(stats) {
-        $('#dlvl').innerText = stats.drain;
-        $('#dstr').innerText = stats.drainStr;
-        $('#drng').innerText = stats.drainRng;
-        $('#dedg').innerText = stats.edge + '%';
-        $('#dmgplus').innerText = stats.dmg + '%';
-        $('#lives').innerText = stats.lives;
-        $('#buylives').innerText = stats.buyableLives;
-        $('#graze').innerText = 
-            '(' + stats.graze.map((n) => n + '').join(' + ') + ')%';
-        $('#dcplus').innerText = 
-            Math.max(0, maxPush(stats.season) - stats.maxpushDCReduce) + '%';
-        var dd_stats = addStats(stats, teams['detective duo']);
-        $('#mindmg-dd').innerText = 
-            (avgDmg(dd_stats) * (1 + dd_stats.dmg / 100)).toFixed(1);
-        $('#maxdmg-dd').innerText = (avgDmg(dd_stats) 
-            * (1 + dd_stats.dmg / 100 + maxPush(stats.season))).toFixed(1);
-        var or_stats = addStats(stats, teams['offline romance']);
-        $('#mindmg-or').innerText = 
-            (avgDmg(or_stats) * (1 + or_stats.dmg / 100)).toFixed(1);
-        $('#maxdmg-or').innerText = (avgDmg(or_stats) 
-            * (1 + or_stats.dmg / 100 + maxPush(stats.season))).toFixed(1);
-    }
-
     //
     // Helpbox handler
     //
-    function toggleClass(elem, cls) {
-        var classes = elem.className.split(' ');
-        var idx = classes.indexOf(cls);
-        if (idx === -1) {
-            elem.className += ' ' + cls;
-        } else {
-            classes.splice(idx, 1);
-            elem.className = classes.join(' ');
-        }
-    }
-
     function onHelpheadClick() { 
         toggleClass($('#helpbox'), 'active');
         toggleClass($('#helphead'), 'active');
     }
 
     //
-    // Phase form handling
+    // Phases
     //
 
     // Replace space-surrounded dashes with en-dashes
@@ -183,12 +184,184 @@
         }
     }
 
+    function readStratForm() {
+        return {
+            ddMaxPush : $('#dd-strat-max').checked,
+            orMaxPush : $('#or-strat-max').checked,
+            useOr : $('#or-switch').checked,
+            daysAlive : parseInt($('#dayslive').value) || 0,
+        };
+    }
+
+    //
+    // Simulation handling
+    //
+    var simulation = {
+        running : false,
+        displayedPercentage : 0,
+        sequenceNum : 0,
+        samplesLeft : 0,
+        samplesDone : 0,
+        samplesTotal : 0,
+        stats : {},
+        strat : {},
+        phase : {},
+        results : {},
+        workers : [],
+    };
+
+    function printResults(results) {
+        var resbox = $('#resultbox');
+        console.log(results);
+    }
+
+    function arrIncrement(arr, deltaArr) {
+        deltaArr.forEach((n, i) => {
+            arr[i] = (arr[i] || 0) + n;
+        });
+    }
+
+    const BATCH_SIZE = 1000;
+    
+    function scheduleJob(worker) {
+        //console.log('Scheduling jerb');
+        var batch = Math.min(simulation.samplesLeft, BATCH_SIZE);
+        //console.log('Batch: ' + batch);
+        if (batch <= 0)
+            return;
+        var {stats, phase, strat, sequenceNum} = simulation;
+        simulation.samplesLeft -= batch;
+        worker.postMessage({stats, phase, strat, sequenceNum
+                           ,numSamples : batch});
+        //console.log('And off it went');
+    }
+
+    function onWorkerMsg(evt) {
+        //console.log('Response from worker');
+        //console.log(evt.data);
+        var results = evt.data;
+        if (!simulation.running 
+                || results.sequenceNum !== simulation.sequenceNum) {
+            return;
+        }
+        simulation.results.losses += results.losses;
+        arrIncrement(simulation.results.lifeBuys, results.lifeBuys);
+        arrIncrement(simulation.results.focusBuys, results.focusBuys);
+        simulation.samplesDone += results.numSamples;
+        if (simulation.samplesDone >= simulation.samplesTotal) {
+            stopSimulation();
+            printResults(simulation.results);
+        }
+        var {samplesDone, samplesTotal} = simulation;
+        var newPercentage = Math.round(100 * samplesDone / samplesTotal);
+        if (newPercentage > simulation.displayedPercentage) {
+            simulation.displayedPercentage = newPercentage;
+            $('#simmsg').innerText = `${newPercentage}%`;
+        }
+        scheduleJob(this);
+    }
+
+    function stopSimulation() {
+        simulation.running = false;
+        $('#simmsg').innerText = '';
+        $('#gobtn').innerText = 'Simulate';
+    }
+
+    function startSimulation() {
+        //console.log('Starting the thing');
+        var numSamples = parseInt($('#numsamples').value) || 0;
+        //console.log(`Samples: ${numSamples}`);
+        var stats = readStatsInput();
+        var phase = phases[$('#phase-select').value];
+        var strat = readStratForm();
+        if (numSamples <= 0 || !phase)
+            return;
+        $('#gobtn').innerText = 'Stop';
+        $('#simmsg').innerText = '0%';
+        Object.assign(simulation, { stats, phase, strat });
+        simulation.displayedPercentage = 0;
+        simulation.sequenceNum += 1;
+        simulation.samplesLeft = simulation.samplesTotal = numSamples;
+        simulation.samplesDone = 0;
+        simulation.results = { losses : 0, lifeBuys : [], focusBuys : [] };
+        var numThreads = 
+            Math.max(parseInt($('#numthreads').value) || 1, 1);
+        //console.log(`Threads: ${numThreads}`);
+        if (simulation.workers.length > numThreads)
+            simulation.workers.length = numThreads;
+        while (simulation.workers.length < numThreads) {
+            //console.log('  Starting worker');
+            let worker = new Worker('phasesim_worker.js');
+            worker.onmessage = onWorkerMsg;
+            simulation.workers.push(worker);
+        }
+        simulation.running = true;
+        for (let w of simulation.workers)
+            scheduleJob(w);
+    }
+
+    //
+    // DOM event handling
+    //
+
+    // Recalculating player and phase stats after input events
+    function updateStatsDisplay(stats, phase) {
+        $('#dlvl').innerText = stats.drain;
+        $('#dstr').innerText = stats.drainStr;
+        $('#drng').innerText = stats.drainRng;
+        $('#dedg').innerText = stats.edge + '%';
+        $('#dmgplus').innerText = stats.dmg + '%';
+        $('#lives').innerText = stats.lives;
+        $('#buylives').innerText = stats.buyableLives;
+        $('#graze').innerText = 
+            '(' + stats.graze.map((n) => n + '').join(' + ') + ')%';
+        $('#dcplus').innerText = 
+            Math.max(0, maxPush(stats.season) - stats.maxpushDCReduce) + '%';
+        var dd_stats = addStats(stats, teams['detective duo']);
+        $('#mindmg-dd').innerText = 
+            (avgDmg(dd_stats) * (1 + dd_stats.dmg / 100)).toFixed(1);
+        $('#maxdmg-dd').innerText = (avgDmg(dd_stats) 
+            * (1 + dd_stats.dmg / 100 + maxPush(stats.season))).toFixed(1);
+        var or_stats = addStats(stats, teams['offline romance']);
+        $('#mindmg-or').innerText = 
+            (avgDmg(or_stats) * (1 + or_stats.dmg / 100)).toFixed(1);
+        $('#maxdmg-or').innerText = (avgDmg(or_stats) 
+            * (1 + or_stats.dmg / 100 + maxPush(stats.season))).toFixed(1);
+        // The phase part
+        $('#ph-hp').innerText = phases[phase].hp;
+        $('#ph-diff').innerText = phases[phase].diff;
+        if (phases[phase].bigdeath) {
+            addClass($('#eleven-note'), 'active');
+        } else {
+            removeClass($('#eleven-note'), 'active');
+        }
+        var tohit = toHit(stats.drainStr, stats.drainRng, phases[phase].diff);
+        $('#ph-tohit').innerText = `${Math.round(100 * tohit)}%`;
+    }
+
+    function onSimulateClick() {
+        //console.log('clicky');
+        if (simulation.running) {
+            stopSimulation();
+        } else {
+            startSimulation();
+        }
+    }
+
+    function onInput() {
+        var phase = $('#phase-select').value;
+        if (!phase)
+            return;
+        updateStatsDisplay(readStatsInput(), phase);
+    }
+
     function setup() {
-        $('#statsform').addEventListener('input', 
-            (evt) => updateStatsDisplay(readStatsInput()));
+        $('#statsform').addEventListener('input', onInput);
         $('#helphead').addEventListener('click', onHelpheadClick);
-        updateStatsDisplay(readStatsInput());
+        $('#phase-select').addEventListener('input', onInput);
+        $('#gobtn').addEventListener('click', onSimulateClick);
         phaseFormInit();
+        onInput();
     }
 
     document.addEventListener('DOMContentLoaded', setup);

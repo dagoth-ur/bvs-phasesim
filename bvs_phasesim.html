@@ -3,8 +3,6 @@
   <head>
     <meta charset="utf-8" />
     <title>BvS Phase Fight Simulator</title>
-    <!-- <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js"></script> -->
-    <script src="jquery-3.4.0.slim.js"></script>
     <script src="bvs_phasesim.js"></script>
 <style>
 body {
@@ -13,6 +11,11 @@ body {
 form {
   display : flex;
   justify-content : space-around;
+  margin : 0;
+}
+#goform {
+  display : flex;
+  justify-content : start;
   margin : 0 10px;
 }
 .formcol {
@@ -45,7 +48,7 @@ select {
 #helpcontainer {
   box-sizing : border-box;
   width : 95%;
-  margin : 0 25px;
+  margin : 0 15px;
 }
 #helphead {
   border : dotted black 1px;
@@ -54,12 +57,14 @@ select {
   justify-content : space-between;
 }
 #helphead span.foldheading::after {
+  font-weight : bold;
   content : "Click to show help";
 }
 #helphead span.foldarrow::after {
   content : "\25b6";
 }
 #helphead.active span.foldheading::after {
+  font-weight : bold;
   content : "Click to hide help";
 }
 #helphead.active span.foldarrow::after {
@@ -80,8 +85,23 @@ select {
   display : revert; */
   display : block;
 }
+#eleven-note {
+  visibility : hidden;
+}
+#eleven-note.active {
+  visibility : visible;
+}
 .pushradios label {
   white-space : nowrap;
+}
+#stickybox {
+  position : sticky;
+  top : 0;
+  border-bottom : 1px solid black;
+  background-color : white;
+}
+#resultbox {
+  margin : 0 15px;
 }
 </style>
   </head>
@@ -133,6 +153,10 @@ select {
         <div class="formrow">
           <label for="r00t-drain">R00t power (+5)</label>
           <input id="r00t-drain" type="checkbox" checked>
+        </div>
+        <div class="formrow">
+          <label for="r00t-fu">R00t fu (Bit Shop) (+2)</label>
+          <input id="r00t-fu" type="checkbox">
         </div>
         <div class="formrow">
           <label for="amplifier">Drain Amplifier (village upgrade) (+2)</label>
@@ -245,48 +269,72 @@ select {
       <div id="helphead"><span class='foldheading'></span><span class='foldarrow'></span></div>
       <div id="helpbox" class="hidable">Insert explanatory text here</div>
     </div>
-    <form id="phaseform">
-      <div class="formcol">
-        <h4>Phase:</h4>
-        <select id="phase-select">
-          <option value="">--- Select Phase ---</option>
-          <!-- Filled from JavaScript -->
-        </select>
-        <div class="formrow"><span>Phase HP:</span><span id="ph-hp">0</span></div>
-        <div class="formrow"><span>Phase difficulty:</span><span id="ph-diff">0</span></div>
-        <div id="eleven-note" class="formrow hidable">(2 lives lost when killed)</div>
+    <div id='stickybox'>
+      <form id="phaseform">
+        <div class="formcol">
+          <h4>Phase:</h4>
+          <select id="phase-select">
+            <!-- Filled from JavaScript -->
+          </select>
+          <div class="formrow"><span>Phase HP:</span><span id="ph-hp">0</span></div>
+          <div class="formrow"><span>Phase difficulty:</span><span id="ph-diff">0</span></div>
+          <div class="formrow"><span>To hit chance:</span><span id="ph-tohit">0%</span></div>
+          <div id="eleven-note" class="formrow">(2 lives lost when killed)</div>
+        </div>
+        <div class="formcol">
+          <h4>Strategy</h4>
+          <div class="formrow">
+            <span>Detective Duo:</span>
+            <span class="pushradios">
+              <label for="dd-strat-max">
+                <input id="dd-strat-max" type="radio" name="dd-strat" checked> Max push
+              </label>
+              <span style="padding-left: 1.5em"></span>
+              <label for="dd-strat-min">
+                <input id="dd-strat-min" type="radio" name="dd-strat"> Min push
+              </label>
+            </span>
+          </div>
+          <div class="formrow">
+            <span>Offline Romance:</span>
+            <span class="pushradios">
+              <label for="or-strat-max">
+                <input id="or-strat-max" type="radio" name="or-strat" checked> Max push
+              </label>
+              <span style="padding-left: 1.5em"></span>
+              <label for="or-strat-min">
+                <input id="or-strat-min" type="radio" name="or-strat"> Min push
+              </label>
+            </span>
+          </div>
+          <div class="formrow">
+            <label for="or-switch">Use Offline Romance team</label>
+            <input type="checkbox" id="or-switch" checked>
+          </div>
+          <div class="formrow">
+            <label for="dayslive">Phase days alive</label>
+            <input id="dayslive" type="text" size=2 maxlength=2 inputmode="decimal" value="0">
+          </div>
+        </div>
+      </form>
+      <hr>
+      <div class="formrow" style="margin : 0 15px">
+        <span>
+          <label for="numsamples">Number of fights:</label>
+          <input type="text" id="numsamples" size=8 maxlength=8 inputmode="decimal">
+        </span>
+        <span style="padding-left: 1.5em"></span>
+        <span>
+          <label for="numthreads">Number of CPU threads:</label>
+          <input type="text" id="numthreads" size=3 maxlength=3 inputmode="decimal">
+        </span>
+        <span style="padding-left: 1.5em"></span>
+        <span id='simmsg'></span>
+        <span style="flex-grow : 1"></span>
+        <button id='gobtn'>Simulate</button>
       </div>
-      <div class="formcol">
-        <h4>Strategy</h4>
-        <div class="formrow">
-          <span>Detective Duo:</span>
-          <span class="pushradios">
-            <label for="dd-strat-max">
-              <input id="dd-strat-max" type="radio" name="dd-strat" checked> Max push
-            </label>
-            <span style="padding-left: 1.5em"></span>
-            <label for="dd-strat-min">
-              <input id="dd-strat-min" type="radio" name="dd-strat"> Min push
-            </label>
-          </span>
-        </div>
-        <div class="formrow">
-          <span>Offline Romance:</span>
-          <span class="pushradios">
-            <label for="or-strat-max">
-              <input id="or-strat-max" type="radio" name="or-strat" checked> Max push
-            </label>
-            <span style="padding-left: 1.5em"></span>
-            <label for="or-strat-min">
-              <input id="or-strat-min" type="radio" name="or-strat"> Min push
-            </label>
-          </span>
-        </div>
-        <div class="formrow">
-          <label for="or-switch">Use Offline Romance team</label>
-          <input type="checkbox" id="or-switch" checked>
-        </div>
-      </div>
-    </form>
+      <h4 style="margin: 5px 15px; padding-bottom : 5px">Results:</h4>
+    </div>
+    <div id='resultbox'></div>
   </body>
 </html>
