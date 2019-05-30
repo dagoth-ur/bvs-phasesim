@@ -1,4 +1,6 @@
-(function () { "use strict";
+(function () { 
+    "use strict";
+
     //
     // Helpful things
     //
@@ -58,8 +60,8 @@
                     ,'guardian'    : {lives : 1}
                     ,'lifefavor'   : {buyableLives : 1}
                     ,'zawazawa'    : {buyableLives : 1}
-                    ,'wotan'       : {maxpushDCReduce : 1}
-                    ,'bulltime'    : {maxpushDCReduce : 1}
+                    ,'wotan'       : {maxPushDCReduce : 1}
+                    ,'bulltime'    : {maxPushDCReduce : 1}
                     ,'timecube'    : {graze : [11]}
                     ,'k-belt'      : {graze : [10]}
                     ,'maxfox'      : {graze : [11]}
@@ -75,7 +77,7 @@
 
     function readStatsInput() {
         var base = { drain : 0, drainStr : 0, drainRng : 10, edge : 0
-                   , lives : 1, buyableLives : 0, maxpushDCReduce : 0
+                   , lives : 1, buyableLives : 0, maxPushDCReduce : 0
                    , graze : [], dmg : 0, season : 0};
         for (let bonus of Object.keys(bonuses)) {
             if (!$(`#${bonus}`).checked)
@@ -93,27 +95,46 @@
             }
         }
         for (let field of Object.keys(numFields)) {
-            let val = parseInt(
-                $(`#${field}`).value || "0");
+            let val = 
+                Math.max(0, parseInt($(`#${field}`).value || "0"));
             if (field === 'season')
                 val = Math.min(50, val);
             for (let stat of numFields[field].split(','))
                 base[stat.trim()] += val;
         }
+        base.maxPushDCPlus = 
+            Math.max(0, maxPush(base.season) - base.maxPushDCReduce);
         return base;
     }
+
+    //
+    // Calculated stats
+    //
 
     function maxPush(season) {
         return Math.min(Math.max(0, season-1) * 0.5, 4);
     }
 
     function toHit(str, rng, diff) {
+        if (diff > rng)
+            return 0;
         return 1 - (Math.max(0, diff - 1 - str) / rng);
     }
 
-    // Before dmg% bonus
-    function avgDmg(stats) {
+    function deathPercent(stats, daysAlive, useMaxPush=false) {
+        return Math.min(100, 
+                        1 + daysAlive + useMaxPush * stats.maxPushDCPlus);
+    }
+
+    // Average damage with edge but before dmg% bonus 
+    // (assuming all successes)
+    function baseDmg(stats) {
         return stats.drain / (1 - stats.edge / 100);
+    }
+
+    function avgDmg(stats, useMaxPush=false) {
+        var pushBonus = useMaxPush * maxPush(stats.season);
+        return baseDmg(stats) * (1 + stats.dmg / 100 + pushBonus);
     }
 
     function addStats(stats, extra) {
@@ -189,7 +210,8 @@
             ddMaxPush : $('#dd-strat-max').checked,
             orMaxPush : $('#or-strat-max').checked,
             useOr : $('#or-switch').checked,
-            daysAlive : parseInt($('#dayslive').value) || 0,
+            useOxy : $('#oxyblast').checked,
+            daysAlive : Math.max(0, parseInt($('#dayslive').value) || 0),
         };
     }
 
@@ -204,15 +226,102 @@
         samplesDone : 0,
         samplesTotal : 0,
         stats : {},
+        simStats : {},
         strat : {},
         phase : {},
         results : {},
         workers : [],
     };
 
-    function printResults(results) {
+    function stamCost(timesFocused) {
+        var total = 0;
+        var multiplier = simulation.stats.endurance ? 0.75 : 1;
+        var discount = simulation.stats.pinkskull ? 20 : 0;
+        for (let i = 0; i < timesFocused; ++i)
+            total += (200 + i * 100) * multiplier - discount;
+        return total;
+    }
+
+    function samplesPercent(num) {
+        return (num / simulation.samplesTotal * 100);
+    }
+
+    function winsPercent(num) {
+        return 100 * (
+            num / (simulation.samplesTotal - simulation.results.losses));
+    }
+
+    //
+    // Printing of results
+    //
+
+    const resultsSpacerS = '<span style="padding-left : 1.5em"> </span>';
+    const resultsSpacerL = '<span style="padding-left : 2em"> </span>';
+
+    function phaseSummaryHTML(phase, strat) {
+        return [`<b>Phase:</b> ${phase.name}${resultsSpacerS}(HP: ${phase.hp}`
+               ,`Difficulty: ${phase.diff}`
+               ,`Days alive: ${strat.daysAlive})`].join(resultsSpacerS);
+    }
+
+    function statsSummaryHTML(stats, simStats) {
+        return [
+            `Drain: ${stats.season}+${stats.drain - stats.season}`
+          , `Str: ${stats.drainStr}` 
+          , `Rng: ${stats.drainRng}`
+          , `Edge: ${stats.edge}` 
+          , `+Dmg: ${stats.dmg}%`
+          , `Lives: ${simStats.lives}+${simStats.buyableLives}`
+          , `Maxpush +DC: ${stats.maxPushDCPlus}%`
+          , `Graze chance: ${(100 * simStats.dodgeChance).toFixed(0)}%`
+          , `To hit: ${(100 * simStats.tohit).toFixed(0)}%`]
+          .join(resultsSpacerS);
+    }
+
+    function stratSummaryHTML(strat, simStats) {
+        var stratLine = (
+            '<b>Strategy:</b>' + resultsSpacerS
+          + ` DD at ${strat.ddMaxPush ? 'max push' : 'min push'}`
+          + ` (Dmg: ${simStats.ddDmg.toFixed(0)}; DC: ${simStats.ddDC}%)`);
+        if (!simStats.offRomanceAvailable)
+            return stratLine;
+        stratLine += (
+            ` ---&gt; OR at ${strat.orMaxPush ? 'max push' : 'min push'}`
+          + ` (Dmg: ${simStats.orDmg.toFixed(0)}; DC: ${simStats.orDC}%)`);
+        return stratLine;
+    }
+
+    function printResults() {
         var resbox = $('#resultbox');
-        console.log(results);
+        var lines = [];
+        lines.push(phaseSummaryHTML(simulation.phase, simulation.strat));
+        lines.push(statsSummaryHTML(simulation.stats, simulation.simStats));
+        //lines.push(`<b>Number of samples:</b> ${simulation.samplesTotal}`);
+        lines.push(stratSummaryHTML(simulation.strat, simulation.simStats));
+        // Results (num of lives bought)
+        var results = simulation.results;
+        var resData = [['Defeat', samplesPercent(results.losses)]];
+        resData.push(
+            ...results.lifeBuys
+            .map((b, i) => [i, samplesPercent(b)])
+            .filter(() => true));
+        lines.push(`<b>Results:</b>${resultsSpacerS}` +
+            resData
+            .map(([label, pct]) => `${label} : ${pct.toFixed(1)}%`)
+            .join(resultsSpacerL));
+        // Stamina costs
+        var stamData = (
+            results.focusBuys
+            .map((b, i) => [i, winsPercent(b)])
+            .filter(() => true) // Skip empty slots
+            .filter(([i, p]) => p >= 1));
+        lines.push(`<b>Stamina:</b>${resultsSpacerS}` +
+            stamData
+            .map(([i, p]) => `${i} (${stamCost(i)}): ${p.toFixed(1)}%`)
+            .join(resultsSpacerL) + '<hr>');
+        var p = document.createElement('p');
+        p.innerHTML = lines.join('<br>');
+        resbox.prepend(p);
     }
 
     function arrIncrement(arr, deltaArr) {
@@ -224,21 +333,16 @@
     const BATCH_SIZE = 1000;
     
     function scheduleJob(worker) {
-        //console.log('Scheduling jerb');
         var batch = Math.min(simulation.samplesLeft, BATCH_SIZE);
-        //console.log('Batch: ' + batch);
         if (batch <= 0)
             return;
-        var {stats, phase, strat, sequenceNum} = simulation;
         simulation.samplesLeft -= batch;
-        worker.postMessage({stats, phase, strat, sequenceNum
+        worker.postMessage({sequenceNum : simulation.sequenceNum
+                           ,simStats : simulation.simStats
                            ,numSamples : batch});
-        //console.log('And off it went');
     }
 
     function onWorkerMsg(evt) {
-        //console.log('Response from worker');
-        //console.log(evt.data);
         var results = evt.data;
         if (!simulation.running 
                 || results.sequenceNum !== simulation.sequenceNum) {
@@ -268,16 +372,34 @@
     }
 
     function startSimulation() {
-        //console.log('Starting the thing');
         var numSamples = parseInt($('#numsamples').value) || 0;
-        //console.log(`Samples: ${numSamples}`);
-        var stats = readStatsInput();
         var phase = phases[$('#phase-select').value];
-        var strat = readStratForm();
         if (numSamples <= 0 || !phase)
             return;
         $('#gobtn').innerText = 'Stop';
         $('#simmsg').innerText = '0%';
+        var stats = readStatsInput();
+        var strat = readStratForm();
+        var dd_stats = addStats(stats, teams['detective duo']);
+        var or_stats = addStats(stats, teams['offline romance']);
+        var tohit = toHit(stats.drainStr, stats.drainRng, phase.diff);
+        Object.assign(simulation.simStats, { 
+            tohit : tohit
+          , oxyDmg : tohit * avgDmg(dd_stats, true)
+          , oxyBlastAvailable : strat.useOxy
+          , ddDmg : tohit * avgDmg(dd_stats, strat.ddMaxPush)
+          , ddDC : deathPercent(dd_stats, strat.daysAlive, strat.ddMaxPush)
+          , orDmg : tohit * avgDmg(or_stats, strat.orMaxPush)
+          , orDC : deathPercent(or_stats, strat.daysAlive, strat.orMaxPush)
+          , offRomanceAvailable : strat.useOr
+          , lives : stats.lives
+          , buyableLives : stats.buyableLives
+          , phaseHp : phase.hp
+          , atksPerFocus : stats.pinktaser ? 12 : 10
+          , freeAtkChance : stats.magnifier ? 0.13 : 0
+          , livesPerDeath : 1 + phase.bigdeath
+          , dodgeChance : 1 - stats.graze.reduce(
+              (acc, p) => acc * (1 - p / 100), 1) });
         Object.assign(simulation, { stats, phase, strat });
         simulation.displayedPercentage = 0;
         simulation.sequenceNum += 1;
@@ -286,11 +408,9 @@
         simulation.results = { losses : 0, lifeBuys : [], focusBuys : [] };
         var numThreads = 
             Math.max(parseInt($('#numthreads').value) || 1, 1);
-        //console.log(`Threads: ${numThreads}`);
         if (simulation.workers.length > numThreads)
             simulation.workers.length = numThreads;
         while (simulation.workers.length < numThreads) {
-            //console.log('  Starting worker');
             let worker = new Worker('phasesim_worker.js');
             worker.onmessage = onWorkerMsg;
             simulation.workers.push(worker);
@@ -315,18 +435,13 @@
         $('#buylives').innerText = stats.buyableLives;
         $('#graze').innerText = 
             '(' + stats.graze.map((n) => n + '').join(' + ') + ')%';
-        $('#dcplus').innerText = 
-            Math.max(0, maxPush(stats.season) - stats.maxpushDCReduce) + '%';
+        $('#dcplus').innerText = stats.maxPushDCPlus + '%';
         var dd_stats = addStats(stats, teams['detective duo']);
-        $('#mindmg-dd').innerText = 
-            (avgDmg(dd_stats) * (1 + dd_stats.dmg / 100)).toFixed(1);
-        $('#maxdmg-dd').innerText = (avgDmg(dd_stats) 
-            * (1 + dd_stats.dmg / 100 + maxPush(stats.season))).toFixed(1);
+        $('#mindmg-dd').innerText = avgDmg(dd_stats).toFixed(1);
+        $('#maxdmg-dd').innerText = avgDmg(dd_stats, true).toFixed(1);
         var or_stats = addStats(stats, teams['offline romance']);
-        $('#mindmg-or').innerText = 
-            (avgDmg(or_stats) * (1 + or_stats.dmg / 100)).toFixed(1);
-        $('#maxdmg-or').innerText = (avgDmg(or_stats) 
-            * (1 + or_stats.dmg / 100 + maxPush(stats.season))).toFixed(1);
+        $('#mindmg-or').innerText = avgDmg(or_stats).toFixed(1);
+        $('#maxdmg-or').innerText = avgDmg(or_stats, true).toFixed(1); 
         // The phase part
         $('#ph-hp').innerText = phases[phase].hp;
         $('#ph-diff').innerText = phases[phase].diff;
@@ -340,7 +455,6 @@
     }
 
     function onSimulateClick() {
-        //console.log('clicky');
         if (simulation.running) {
             stopSimulation();
         } else {
@@ -360,6 +474,8 @@
         $('#helphead').addEventListener('click', onHelpheadClick);
         $('#phase-select').addEventListener('input', onInput);
         $('#gobtn').addEventListener('click', onSimulateClick);
+        $('#clearlink').addEventListener('click',
+            () => $('#resultbox').innerHTML = '');
         phaseFormInit();
         onInput();
     }

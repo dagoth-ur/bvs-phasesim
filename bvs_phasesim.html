@@ -106,12 +106,13 @@ select {
 </style>
   </head>
   <body>
+    <h1>BvS Phase Fight Simulator</h1>
     <form id="statsform">
       <div class="formcol">
         <h4>Drain strength:</h4>
         <div class="formrow">
           <label for="hacks">Active hacks</label>
-          <input id="hacks" type="text" maxlength=2 size=3 inputmode="decimal">
+          <input id="hacks" type="text" maxlength=2 size=3 value="20" inputmode="decimal">
         </div>
         <div class="formrow">
           <label for="r00t">R00t rank (+2)</label>
@@ -244,7 +245,7 @@ select {
           <input id="magnifier" type="checkbox" checked>
         </div>
       </div>
-      <div class="formcol">
+      <div class="formcol" style="flex-basis : 220px">
         <h4>Stats:</h4>
         <div class="formrow"><span>Drain level:</span><span id="dlvl">1</span></div>
         <div class="formrow"><span>Drain strength:</span><span id="dstr">1</span></div>
@@ -267,7 +268,7 @@ select {
     </form>
     <div id="helpcontainer">
       <div id="helphead"><span class='foldheading'></span><span class='foldarrow'></span></div>
-      <div id="helpbox" class="hidable">Insert explanatory text here</div>
+      <div id="helpbox" class="hidable">Insert explanatory text here... later</div>
     </div>
     <div id='stickybox'>
       <form id="phaseform">
@@ -312,6 +313,10 @@ select {
             <input type="checkbox" id="or-switch" checked>
           </div>
           <div class="formrow">
+            <label for="oxyblast">Use OxyBlast</label>
+            <input type="checkbox" id="oxyblast">
+          </div>
+          <div class="formrow">
             <label for="dayslive">Phase days alive</label>
             <input id="dayslive" type="text" size=2 maxlength=2 inputmode="decimal" value="0">
           </div>
@@ -321,19 +326,21 @@ select {
       <div class="formrow" style="margin : 0 15px">
         <span>
           <label for="numsamples">Number of fights:</label>
-          <input type="text" id="numsamples" size=8 maxlength=8 inputmode="decimal">
+          <input type="text" id="numsamples" size=8 maxlength=8 value="100000" inputmode="decimal">
         </span>
         <span style="padding-left: 1.5em"></span>
         <span>
           <label for="numthreads">Number of CPU threads:</label>
-          <input type="text" id="numthreads" size=3 maxlength=3 inputmode="decimal">
+          <input type="text" id="numthreads" size=3 maxlength=3 value="2" inputmode="decimal">
         </span>
         <span style="padding-left: 1.5em"></span>
         <span id='simmsg'></span>
         <span style="flex-grow : 1"></span>
         <button id='gobtn'>Simulate</button>
       </div>
-      <h4 style="margin: 5px 15px; padding-bottom : 5px">Results:</h4>
+      <div class="formrow" style="margin : 0 15px; padding: 5px 3px">
+        <h4 style="margin : 0">Results:</h4><a id='clearlink' href="javascript:void">(clear)</a>
+      </div>
     </div>
     <div id='resultbox'></div>
   </body>
